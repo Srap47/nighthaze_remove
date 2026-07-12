@@ -1,0 +1,19 @@
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+python_version = "311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "slow: exercises the full pipeline incl. FFA-Net CPU inference (~15s each)",
+]
+
+[tool.uv]
+override-dependencies = [
+    "opencv-python; sys_platform == 'never'",
+]

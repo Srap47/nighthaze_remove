@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.env
+
+# ML weights
+ml/weights/*.pkl
+ml/weights/*.pth
+
+# Node
+node_modules/
+frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / tooling
+.vscode/
+.idea/
+.claude/
+
+# Test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
