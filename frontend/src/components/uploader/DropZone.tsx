@@ -1,8 +1,22 @@
+/**
+ * DropZone — File upload area with drag/drop support.
+ *
+ * Part of: Frontend uploader components
+ * Used by: HomePage (upload section when idle)
+ *
+ * Renders a dashed box that accepts image files via drag/drop or click.
+ * Validates file type (JPEG, PNG, WebP) and size (≤ 10MB) before calling
+ * onFileSelect. Displays user-friendly error messages for rejections inline.
+ */
+
 import { useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { UploadCloud } from 'lucide-react';
 
-const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB — matches backend max_image_size_mb
+// TWEAK NOTE: Maximum upload size
+// Must match backend config.max_image_size_mb (currently 10MB).
+// Increase here AND on backend to allow larger uploads; decrease to restrict.
+const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
 interface DropZoneProps {
   onFileSelect: (file: File) => void;
@@ -12,12 +26,14 @@ interface DropZoneProps {
 export function DropZone({ onFileSelect, disabled = false }: DropZoneProps) {
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
+      // Only process the first file (maxFiles: 1 in config also enforces this)
       const file = acceptedFiles[0];
       if (file) onFileSelect(file);
     },
     [onFileSelect],
   );
 
+  // react-dropzone hook manages the drop zone state and file validation
   const { getRootProps, getInputProps, isDragActive, fileRejections } =
     useDropzone({
       onDrop,
@@ -28,8 +44,10 @@ export function DropZone({ onFileSelect, disabled = false }: DropZoneProps) {
       disabled,
     });
 
-  // Surface the first rejection reason inline.
+  // Extract rejection error for display. Shows first rejection if multiple files dropped.
   const rejectionError = fileRejections[0]?.errors[0];
+  // Map react-dropzone error codes to user-friendly messages.
+  // These messages appear inline below the drop zone to guide the user.
   let rejectionMessage: string | null = null;
   if (rejectionError) {
     switch (rejectionError.code) {
@@ -47,6 +65,9 @@ export function DropZone({ onFileSelect, disabled = false }: DropZoneProps) {
     }
   }
 
+  // TWEAK NOTE: Drop zone visual states
+  // isDragActive applies primary color (purple) to the border/background on drag.
+  // Modify these Tailwind classes to change the highlight effect.
   const stateClasses = isDragActive
     ? 'border-primary bg-primary/5'
     : 'border-white/20 hover:border-white/30 hover:bg-white/[0.02]';

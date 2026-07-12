@@ -1,4 +1,18 @@
+/**
+ * AboutPage — Project information and documentation page.
+ *
+ * Part of: Frontend pages
+ * Route: /about (via App.tsx router)
+ *
+ * Explains the nighttime dehazing problem, the six-stage solution pipeline,
+ * the FFA-Net model, the metrics used, and project credits. Static content
+ * with no interactivity — uses Card components for visual grouping.
+ */
+
 import { Card } from '../components/ui/Card';
+
+// Static data structures for pipeline stages and metrics, used to render lists.
+// These are displayed on the About page to educate users about the approach.
 
 const PIPELINE_STAGES = [
   {

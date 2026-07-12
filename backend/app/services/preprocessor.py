@@ -59,6 +59,7 @@ class Preprocessor:
 
         noise_value = self._estimate_noise(image)
         # Lower Laplacian variance ⇒ blurrier/noisier ⇒ stronger filtering.
+        # TWEAK NOTE: Thresholds (50, 200) control noise classification; adjust if image quality changes
         if noise_value < 50:
             noise_level = "high"
         elif noise_value < 200:
@@ -66,6 +67,10 @@ class Preprocessor:
         else:
             noise_level = "low"
 
+        # TWEAK NOTE: Bilateral filter diameter (d) and sigma values control denoising strength
+        # Larger d and sigma = more aggressive smoothing (slower but less noise)
+        # High noise: d=9, sigmaColor=75, sigmaSpace=75 (aggressive)
+        # Medium noise: d=5, sigmaColor=50, sigmaSpace=50 (moderate)
         if noise_level == "high":
             image = cv2.bilateralFilter(image, d=9, sigmaColor=75, sigmaSpace=75)
         elif noise_level == "medium":
@@ -91,9 +96,14 @@ class Preprocessor:
         """Selectively brighten very dark regions (luminance < 30) with gamma 0.7."""
         img_float = image.astype(np.float32) / 255.0
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # TWEAK NOTE: dark_mask threshold (30) isolates very dark pixels for brightening
+        # Lower threshold = target darker regions; higher = broader application
         dark_mask = (gray < 30).astype(np.float32)
         # out = in^(1/gamma), gamma = 0.7 → brightens shadows.
+        # TWEAK NOTE: gamma value (0.7) controls shadow brightening strength
+        # Lower gamma (e.g., 0.6) brightens more; higher (e.g., 0.8) brightens less
         gamma_corrected = np.power(np.clip(img_float, 1e-6, 1.0), 1.0 / 0.7)
+        # Blend: apply gamma correction only to dark regions, preserve bright areas
         result = (
             img_float * (1 - dark_mask[:, :, None])
             + gamma_corrected * dark_mask[:, :, None]

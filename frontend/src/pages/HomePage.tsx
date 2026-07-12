@@ -1,3 +1,19 @@
+/**
+ * HomePage: Main application page orchestrating the full user workflow.
+ *
+ * Renders a state machine driven by useDehazeAPI hook:
+ * - idle: hero + upload prompt + features
+ * - uploading: progress bar
+ * - processing: spinner + pipeline stage breakdown
+ * - done: before/after comparison + metrics + download
+ * - error: error message + retry button
+ *
+ * Displays three visualization tabs in results:
+ * - Result: side-by-side before/after comparison
+ * - Transmission Map: haze density visualization
+ * - Glow Mask: detected light source regions
+ */
+
 import { useState } from 'react';
 import { AlertTriangle, Atom, Brain, Gauge } from 'lucide-react';
 
@@ -10,6 +26,7 @@ import { ImageComparison } from '../components/viewer/ImageComparison';
 import { MetricsDisplay } from '../components/viewer/MetricsDisplay';
 import { useDehazeAPI } from '../hooks/useDehazeAPI';
 
+/** Visualization tabs in the results panel. */
 type Tab = 'result' | 'transmission' | 'glow';
 
 const TABS: { id: Tab; label: string }[] = [

@@ -45,15 +45,24 @@ class RadianceRecovery:
         omega = self.settings.omega
 
         A = atm_result.atmospheric_light_map              # H x W x 3
-        # Transmission approximation: brighter atm light ⇒ lower transmission.
+        # Transmission approximation: brighter atm light ⇒ lower transmission (more scattering).
+        # Assumes atmospheric light brightness correlates with haze density
         t_map = np.clip(1.0 - omega * A.mean(axis=2), t_min, 1.0)  # H x W
         t_clamped = np.maximum(t_map[:, :, None], t_min)          # H x W x 1
 
-        # Scattering-model inversion: J = (I - A) / max(t, t_min) + A
+        # Physics-based scattering-model inversion (He et al.):
+        # Observed image I = J * t + A * (1 - t), where:
+        #   J = scene radiance (what we want)
+        #   t = transmission (fraction of light reaching camera)
+        #   A = atmospheric light (airlight)
+        # Solving for J: J = (I - A) / max(t, t_min) + A
         recovered = (ffa_dehazed - A) / t_clamped + A
         recovered = np.clip(recovered, 0.0, 1.0)
 
-        # Glow-aware blending: trust FFA-Net more inside glow regions (70%).
+        # Glow-aware blending: preserve FFA-Net output inside glow regions to avoid over-brightening
+        # Physics inversion can amplify noise/artifacts near bright lights; FFA-Net is more robust
+        # TWEAK NOTE: Glow blend weight (0.7 = 70% FFA-Net) balances physics accuracy vs. stability
+        # Higher weight = trust FFA more (less brightening, more stable); lower = trust physics more
         glow_3ch = glow_mask[:, :, None]
         final = recovered * (1.0 - glow_3ch * 0.7) + ffa_dehazed * (glow_3ch * 0.7)
         final = np.clip(final, 0.0, 1.0)

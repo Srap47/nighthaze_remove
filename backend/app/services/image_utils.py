@@ -89,12 +89,22 @@ def file_to_numpy(file_bytes: bytes) -> np.ndarray:
 
 
 def normalize(image: np.ndarray) -> np.ndarray:
-    """Convert a uint8 [0,255] image to float32 [0,1]."""
+    """Convert a uint8 [0,255] image to float32 [0,1].
+
+    Used at the start of preprocessing to convert the input into the pipeline's
+    internal float32 representation. Allows all downstream computations to work
+    in [0,1] space without worrying about dtype overflow.
+    """
     return image.astype(np.float32) / 255.0
 
 
 def denormalize(image: np.ndarray) -> np.ndarray:
-    """Convert a float32 [0,1] image to uint8 [0,255], clipping out-of-range values."""
+    """Convert a float32 [0,1] image to uint8 [0,255], clipping out-of-range values.
+
+    Used at the end of preprocessing and after final post-processing to convert
+    back to the uint8 space for display and encoding. Clipping handles any
+    floating-point values that drifted outside [0,1] due to arithmetic.
+    """
     return np.clip(image * 255.0, 0, 255).astype(np.uint8)
 
 

@@ -63,10 +63,13 @@ class GlowDetector:
         img_uint8 = image_utils.denormalize(image)
 
         # 1. Brightness (V) channel in [0,1].
+        # Extract the Value channel from HSV color space; represents perceived brightness
         hsv = cv2.cvtColor(img_uint8, cv2.COLOR_BGR2HSV)
         v_channel = hsv[:, :, 2].astype(np.float32) / 255.0
 
-        # 2. Blur to approximate glow spread.
+        # 2. Blur to approximate glow spread and reduce noise
+        # TWEAK NOTE: Gaussian blur kernel (21, 21) spreads light source detection
+        # Larger kernel = wider glow detection; smaller kernel = tighter, more localized
         v_blurred = cv2.GaussianBlur(v_channel, (21, 21), 0)
 
         # Edge case: pitch-dark frame → no meaningful light sources.
@@ -79,15 +82,20 @@ class GlowDetector:
                 num_sources=0,
             )
 
-        # 3. Threshold at 85% of peak brightness.
+        # 3. Threshold at 85% of peak brightness to isolate brightest regions
+        # TWEAK NOTE: Threshold multiplier (0.85) controls detection sensitivity
+        # Lower multiplier (e.g., 0.7) = detect dimmer lights; higher (e.g., 0.95) = only brightest
         threshold = 0.85 * max_brightness
         light_mask = (v_blurred > threshold).astype(np.uint8) * 255
 
-        # 4. Dilate with an elliptical kernel to capture the halo.
+        # 4. Dilate with an elliptical kernel to capture the halo and glow spread
+        # TWEAK NOTE: Dilation kernel size (41, 41) expands light source footprint
+        # Larger kernel = wider glow halos (stronger effect); smaller = more localized
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (41, 41))
         glow_mask_uint8 = cv2.dilate(light_mask, kernel)
 
         # 5. Connected components = individual light sources.
+        # Identify separate, connected regions of bright pixels (8-connected neighborhood)
         num_labels, _labels, stats, centroids = cv2.connectedComponentsWithStats(
             light_mask, connectivity=8
         )
@@ -95,6 +103,8 @@ class GlowDetector:
         glow_regions: list[GlowRegion] = []
         for i in range(1, num_labels):  # label 0 is background
             x, y, w, h, area = stats[i]
+            # TWEAK NOTE: Area threshold (50) filters out noise and very small light sources
+            # Lower threshold = detect smaller lights; higher = only detect larger sources
             if area < 50:  # ignore tiny noise blobs
                 continue
 
@@ -102,6 +112,7 @@ class GlowDetector:
             cy = min(max(int(centroids[i][1]), 0), H - 1)
 
             # Expanded ROI (2x bounding box, clamped to the image).
+            # This provides context around the core light source for better atmospheric estimation
             ex = max(0, x - w // 2)
             ey = max(0, y - h // 2)
             ew = min(W, x + w + w // 2) - ex
@@ -111,6 +122,9 @@ class GlowDetector:
                 continue
 
             # Local atmospheric light = mean of the top 0.1% brightest ROI pixels.
+            # This captures the dominant color/intensity of the light source itself
+            # TWEAK NOTE: Percentile (0.001 = top 0.1%) controls how many pixels average the light color
+            # Higher percentile (e.g., 0.01) = more pixels, smoother estimate; lower = purer peak color
             roi_gray = cv2.cvtColor(image_utils.denormalize(roi), cv2.COLOR_BGR2GRAY)
             flat_brightness = roi_gray.flatten()
             top_pct_count = max(1, int(len(flat_brightness) * 0.001))

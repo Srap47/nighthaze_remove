@@ -20,16 +20,35 @@ class NightHazeError(Exception):
 
 
 class InvalidImageError(NightHazeError):
-    """Raised when uploaded file is not a valid image or has invalid dimensions."""
+    """Raised when uploaded file is not a valid image or has invalid dimensions.
+
+    Mapped to HTTP 400 by the FastAPI exception handler in app/main.py.
+    """
 
 
 class ImageTooLargeError(NightHazeError):
-    """Raised when image exceeds size limits."""
+    """Raised when image exceeds size limits.
+
+    Mapped to HTTP 413 (Payload Too Large) by the exception handler.
+    Raised by image_utils.validate_image() for both file size and
+    image dimension violations.
+    """
 
 
 class ModelNotLoadedError(NightHazeError):
-    """Raised when FFA-Net weights file is missing or corrupted."""
+    """Raised when FFA-Net weights file is missing or corrupted.
+
+    Mapped to HTTP 503 (Service Unavailable). The app still starts
+    gracefully if weights are missing—this exception is only raised when
+    a dehazing endpoint is called. Allows the health check to report
+    model_loaded=False without crashing.
+    """
 
 
 class PipelineError(NightHazeError):
-    """Raised when any pipeline stage fails unexpectedly."""
+    """Raised when any pipeline stage fails unexpectedly.
+
+    Wraps exceptions from services (preprocessor, glow_detector, etc.)
+    and adds context about which stage failed. Mapped to HTTP 500 by
+    the exception handler.
+    """

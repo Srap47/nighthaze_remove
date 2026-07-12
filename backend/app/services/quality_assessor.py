@@ -42,19 +42,26 @@ class QualityAssessor:
             A populated :class:`DehazeMetrics` (``processing_time_ms`` left at
             0.0 for the pipeline to fill in).
         """
+        # Convert BGR to RGB for scikit-image metrics (they expect RGB channel order)
         orig_rgb = cv2.cvtColor(original, cv2.COLOR_BGR2RGB)
         dehazed_rgb = cv2.cvtColor(dehazed, cv2.COLOR_BGR2RGB)
 
-        # 1. PSNR (Peak Signal-to-Noise Ratio).
+        # 1. PSNR (Peak Signal-to-Noise Ratio) — full-reference metric
+        # Compares hazy original to dehazed output; higher is better
+        # Range typically 15-40 dB; >25 dB = good quality, >30 dB = excellent
         psnr = peak_signal_noise_ratio(orig_rgb, dehazed_rgb, data_range=255)
 
-        # 2. SSIM (Structural Similarity Index).
+        # 2. SSIM (Structural Similarity Index) — full-reference metric
+        # Measures structural/perceptual similarity; higher is better (range 0-1)
+        # Incorporates luminance, contrast, and structure comparisons
         # scikit-image 0.22: use channel_axis=2 (the old multichannel= was removed).
         ssim = structural_similarity(
             orig_rgb, dehazed_rgb, channel_axis=2, data_range=255
         )
 
-        # 3. BRISQUE (no-reference; lower = better). Never let it crash the pipeline.
+        # 3. BRISQUE (Blind/Referenceless Image Spatial Quality Evaluator) — no-reference metric
+        # Lower is better; evaluates distortion without reference image
+        # Gracefully handles failures (returns -1.0) to prevent pipeline crashes
         try:
             # Compatibility shim: brisque 0.0.15 references scipy.ndarray, an
             # alias removed in modern SciPy. Restore it before importing brisque.
@@ -72,18 +79,25 @@ class QualityAssessor:
             logger.warning("BRISQUE scoring failed (%s); returning -1.0.", exc)
             brisque_score = -1.0
 
-        # 4. NIQE (simplified, computed on the dehazed image; lower = better).
+        # 4. NIQE (Natural Image Quality Evaluator) — simplified, computed on dehazed image
+        # Lower is better (closer to 0 = more natural); measures deviation from natural image statistics
+        # Useful for detecting artifacts and unnatural distortions
         niqe_score = self._compute_niqe(dehazed)
 
-        # 5. Visibility score — how much haze was removed (higher = more).
+        # 5. Visibility score — estimates atmospheric haze removal effectiveness
+        # Uses dark channel prior: higher score = more haze removed (range 0-1)
+        # Approximates transmission map (darker values = thicker haze)
         orig_float = original.astype(np.float32) / 255.0
-        dark_ch = orig_float.min(axis=2)
-        trans_approx = 1.0 - 0.95 * dark_ch
-        visibility_score = float(1.0 - trans_approx.mean())
+        dark_ch = orig_float.min(axis=2)  # Minimum across RGB channels (dark channel prior)
+        trans_approx = 1.0 - 0.95 * dark_ch  # 0.95 = omega parameter for transmission
+        visibility_score = float(1.0 - trans_approx.mean())  # Mean transmission = haze level
 
-        # 6. Colorfulness (Hasler & Susstrunk, 2003) + improvement.
-        cf_before = self._colorfulness(original)
-        cf_after = self._colorfulness(dehazed)
+        # 6. Colorfulness (Hasler & Susstrunk, 2003) — measures color vibrancy
+        # Higher score = more saturated/vibrant colors
+        # Computes statistics on rg (Red-Green) and yb (Yellow-Blue) opponent color channels
+        cf_before = self._colorfulness(original)  # Hazy image colorfulness
+        cf_after = self._colorfulness(dehazed)    # Dehazed image colorfulness
+        # Calculate percentage improvement in color vibrancy
         improvement_pct = ((cf_after - cf_before) / (cf_before + 1e-6)) * 100
 
         return DehazeMetrics(
@@ -99,32 +113,51 @@ class QualityAssessor:
         )
 
     def _colorfulness(self, image: np.ndarray) -> float:
-        """Hasler & Susstrunk colorfulness metric for a uint8 BGR image."""
+        """Hasler & Susstrunk colorfulness metric for a uint8 BGR image.
+
+        Measures color saturation using opponent color channels (rg and yb).
+        Higher values = more saturated/vibrant colors; lower = more desaturated/grayscale.
+        """
         B, G, R = cv2.split(image.astype(np.float32))
-        rg = R - G
-        yb = 0.5 * (R + G) - B
+        # Opponent color channels: rg (red-green axis), yb (yellow-blue axis)
+        rg = R - G  # Red-green differential
+        yb = 0.5 * (R + G) - B  # Yellow-blue differential (perceptually weighted)
+        # Extract mean and standard deviation for each opponent channel
         std_rg, mean_rg = rg.std(), rg.mean()
         std_yb, mean_yb = yb.std(), yb.mean()
+        # Colorfulness = saturation variance + 0.3 * mean magnitude
+        # (Heavier weight on variance for perceptual sensitivity)
         return float(
             np.sqrt(std_rg ** 2 + std_yb ** 2)
             + 0.3 * np.sqrt(mean_rg ** 2 + mean_yb ** 2)
         )
 
     def _compute_niqe(self, image: np.ndarray) -> float:
-        """Simplified NIQE via MSCN-patch kurtosis deviation from 3.0.
+        """Simplified NIQE (Natural Image Quality Evaluator) via MSCN-patch kurtosis.
 
-        Lower is more natural. Natural images have MSCN kurtosis near 3.0
-        (Gaussian); deviation is averaged over 32x32 patches.
+        Measures deviation from natural image statistics. Lower is better (more natural).
+        Natural images have MSCN (Mean-Subtracted Contrast Normalized) kurtosis near 3.0
+        (Gaussian distribution); artifacts cause deviation from this baseline.
+        Averaged over non-overlapping 32x32 patches for computational efficiency.
         """
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float64)
+        # TWEAK NOTE: patch_size (32) controls the local window for quality assessment
+        # Larger patches = smoother estimate, less sensitive to fine details
+        # Smaller patches = more granular, detects local artifacts better
         patch_size = 32
         scores: list[float] = []
+        # Tile image with non-overlapping patches
         for y in range(0, gray.shape[0] - patch_size, patch_size):
             for x in range(0, gray.shape[1] - patch_size, patch_size):
                 patch = gray[y:y + patch_size, x:x + patch_size]
+                # Normalize patch: subtract mean, divide by standard deviation
                 mu = patch.mean()
-                sigma = patch.std() + 1e-6
+                sigma = patch.std() + 1e-6  # Small epsilon prevents division by zero
                 mscn = (patch - mu) / sigma  # Mean-Subtracted Contrast Normalized
+                # Kurtosis = E[x^4], where x is MSCN-normalized pixel values
+                # Gaussian has kurtosis = 3.0; deviations indicate artifacts/distortion
                 kurtosis = float(np.mean(mscn ** 4))
+                # Track absolute deviation from 3.0 (target Gaussian kurtosis)
                 scores.append(abs(kurtosis - 3.0))
+        # Return mean deviation; lower = more natural image
         return float(np.mean(scores)) if scores else 0.0
